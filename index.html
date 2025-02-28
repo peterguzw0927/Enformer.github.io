@@ -41,13 +41,23 @@
 
 <body>
     <h1>TensorFlow.js Model Output Shape</h1>
+    <div>
+        <h3>Fasta File input Configuration</h3>
+        <button id="downloadFastaButton">Download Human Genome Fasta File</button>
+        <br><br>
+        <label for="FastaPath">Fasta File Path:</label>
+        <input type="text" id="FastaPath" value="http://localhost:8000/hg19.fa" size="50">
+    </div>
 
     <div>
-        <h3>Model Weights Configuration</h3>
-        <button id="downloadModelButton">Download Model Weights</button>
-        <br><br>
-        <label for="modelPath">Model Weights Path:</label>
-        <input type="text" id="modelPath" value="http://localhost:8000/tfjs_model/model.json" size="50">
+        <h3>Select Chromosome Ranges</h3>
+        <button onclick="addRangeField()">Add Range</button>
+        <div id="rangeSelection"></div>
+    </div>
+
+    <div id="chromosomeOutput">
+        <h3>Extracted Sequences:</h3>
+        <pre id="sequenceText">No sequences yet...</pre>
     </div>
 
     <button id="runModelButton">Run Model</button>
@@ -72,8 +82,40 @@
 
     <script>
         let humanOutputTensor;
+        function addRangeField() {
+            const container = document.getElementById("rangeSelection");
+            const div = document.createElement("div");
+            div.innerHTML = `
+                <label>Start:</label>
+                <input type="number" class="startPos" min="0" max="196608">
+                <label>End:</label>
+                <input type="number" class="endPos" min="0" max="196608">
+                <button onclick="this.parentNode.remove()">Remove</button>
+            `;
+            container.appendChild(div);
+        }
 
-        document.getElementById("downloadModelButton").addEventListener("click", async function () {
+        document.getElementById("runModelButton").addEventListener("click", function () {
+            const starts = Array.from(document.getElementsByClassName("startPos")).map(input => parseInt(input.value));
+            const ends = Array.from(document.getElementsByClassName("endPos")).map(input => parseInt(input.value));
+
+            if (starts.some(isNaN) || ends.some(isNaN)) {
+                alert("Please enter valid start and end positions.");
+                return;
+            }
+
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] < 0 || ends[i] > 196608 || starts[i] >= ends[i]) {
+                    alert("Invalid range selection. Ensure 0 <= start < end <= 196608.");
+                    return;
+                }
+            }
+
+            document.getElementById("sequenceText").innerText = "Extracted Sequences: \n" + starts.map((s, i) => `Range ${s}-${ends[i]}: ACTGN...`).join("\n");
+        });
+
+
+        document.getElementById("downloadFastaButton").addEventListener("click", async function () {
             const url = "https://github.com/peterguzw0927/Enformer_wev/raw/main/tfjs_model.zip";
             const link = document.createElement("a");
             link.href = url;
@@ -81,11 +123,11 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            alert("Model weights downloaded. Please unzip and set the correct path.");
+            alert("Fasta File downloaded. Please unzip and set the correct path.");
         });
 
-        function getModelPath() {
-            return document.getElementById("modelPath").value;
+        function getFastaPath() {
+            return document.getElementById("FastaPath").value;
         }
 
         async function runModel() {
@@ -94,7 +136,8 @@
                 await tf.ready();
                 document.getElementById('outputText').innerText = 'Loading model...';
 
-                const modelPath = getModelPath();
+                const modelPath = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model/model.json";
+                ///const modelPath = 'http://localhost:8000/tfjs_model/model_copy.json';
                 console.log("Loading model from:", modelPath);
                 const model = await tf.loadGraphModel(modelPath);
 
