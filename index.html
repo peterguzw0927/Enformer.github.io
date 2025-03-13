@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/dist/tf-backend-webgpu.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
 
     <style>
         body {
@@ -42,23 +43,14 @@
 <body>
     <h1>TensorFlow.js Model Output Shape</h1>
     <div>
-        <h3>Fasta File input Configuration</h3>
-        <button id="downloadFastaButton">Download Human Genome Fasta File</button>
-        <br><br>
-        <label for="FastaPath">Fasta File Path:</label>
-        <input type="text" id="FastaPath" value="http://localhost:8000/hg19.fa" size="50">
-    </div>
-
-    <div>
         <h3>Select Chromosome Ranges</h3>
         <button onclick="addRangeField()">Add Range</button>
         <div id="rangeSelection"></div>
     </div>
 
-    <div id="chromosomeOutput">
-        <h3>Extracted Sequences:</h3>
-        <pre id="sequenceText">No sequences yet...</pre>
-    </div>
+    <button onclick="loadFasta()">Load FASTA</button>
+    <button id="extractSequencesButton" onclick="extractSequences()">Extract Sequences</button>
+    <div id="sequenceText"></div> <!-- Add this element -->
 
     <button id="runModelButton">Run Model</button>
     <div id="output">
@@ -81,19 +73,15 @@
     <div id="plot"></div>
 
     <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Add event listener for 'Extract Sequences' button
+            document.getElementById("extractSequencesButton").addEventListener("click", extractSequences);
+        });
+
+        let fastaData = "";
+        const fastaPath = "http://localhost:8000/fasta.fa";
+
         let humanOutputTensor;
-        function addRangeField() {
-            const container = document.getElementById("rangeSelection");
-            const div = document.createElement("div");
-            div.innerHTML = `
-                <label>Start:</label>
-                <input type="number" class="startPos" min="0" max="196608">
-                <label>End:</label>
-                <input type="number" class="endPos" min="0" max="196608">
-                <button onclick="this.parentNode.remove()">Remove</button>
-            `;
-            container.appendChild(div);
-        }
 
         document.getElementById("runModelButton").addEventListener("click", function () {
             const starts = Array.from(document.getElementsByClassName("startPos")).map(input => parseInt(input.value));
@@ -115,23 +103,13 @@
         });
 
 
-        document.getElementById("downloadFastaButton").addEventListener("click", async function () {
-            const url = "https://github.com/peterguzw0927/Enformer_wev/raw/main/tfjs_model.zip";
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = "tfjs_model.zip";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            alert("Fasta File downloaded. Please unzip and set the correct path.");
-        });
-
-        function getFastaPath() {
-            return document.getElementById("FastaPath").value;
-        }
-
         async function runModel() {
             try {
+                const button = document.getElementById("runModelButton");
+                button.disabled = true; // disable button after click
+                button.style.backgroundColor = "gray";
+                button.innerText = "Running...";
+
                 await tf.setBackend("webgpu");
                 await tf.ready();
                 document.getElementById('outputText').innerText = 'Loading model...';
@@ -234,6 +212,121 @@
             Plotly.newPlot('plot', [trace], layout);
             trackData.dispose();
         }
+        function loadFasta() {
+            d3.text(fastaPath).then(function (data) {
+                parseFasta(data);
+            }).catch(error => {
+                console.error("Error loading FASTA file:", error);
+            });
+        }
+        function oneHotEncode(sequence) {
+            const mapping = { 'a': [1, 0, 0, 0], 'c': [0, 1, 0, 0], 'g': [0, 0, 1, 0], 't': [0, 0, 0, 1], 'n': [0, 0, 0, 0] };
+            return sequence.split("").map(base => mapping[base] || [0, 0, 0, 0]); // Handle unknown bases
+        }
+
+
+        function parseFasta(data) {
+            const lines = data.split("\n");
+            const sequences = [];
+            let currentSequence = null;
+
+            lines.forEach(line => {
+                if (line.startsWith(">")) {
+                    if (currentSequence) {
+                        sequences.push(currentSequence);
+                    }
+                    currentSequence = { header: line.substring(1).trim(), sequence: "" };
+                } else if (currentSequence) {
+                    currentSequence.sequence += line.trim();
+                }
+            });
+
+            if (currentSequence) {
+                sequences.push(currentSequence);
+            }
+            fastaData = sequences;
+            console.log("Loaded Sequences:", sequences);
+        }
+
+        function addRangeField() {
+            const container = document.getElementById("rangeSelection");
+            const div = document.createElement("div");
+            div.innerHTML = `
+                <label>Start:</label>
+                <input type="number" class="startPos" min="0">
+                <label>End:</label>
+                <input type="number" class="endPos" min="0">
+                <button onclick="this.parentNode.remove()">Remove</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function addRangeField() {
+            const container = document.getElementById("rangeSelection");
+            const div = document.createElement("div");
+            div.innerHTML = `
+                <label>Header:</label>
+                <input type="text" class="headerInput" placeholder="Enter header">
+                <label>Start:</label>
+                <input type="number" class="startPos" min="0">
+                <label>End:</label>
+                <input type="number" class="endPos" min="0">
+                <button onclick="this.parentNode.remove()">Remove</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function extractSequences() {
+            if (!fastaData || fastaData.length === 0) {
+                alert("FASTA file not loaded yet.");
+                return;
+            }
+
+            const headers = Array.from(document.getElementsByClassName("headerInput")).map(input => input.value);
+            const starts = Array.from(document.getElementsByClassName("startPos")).map(input => parseInt(input.value));
+            const ends = Array.from(document.getElementsByClassName("endPos")).map(input => parseInt(input.value));
+
+            if (starts.some(isNaN) || ends.some(isNaN) || headers.some(header => !header)) {
+                alert("Please enter valid headers, start, and end positions.");
+                return;
+            }
+
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] < 0 || ends[i] < 0 || starts[i] >= ends[i]) {
+                    alert("Invalid range. Ensure 0 <= start < end.");
+                    return;
+                }
+            }
+
+            let extractedSequences = "";
+
+            for (let i = 0; i < headers.length; i++) {
+                const header = headers[i];
+                const start = starts[i];
+                const end = ends[i] + 1;
+
+                const sequenceObj = fastaData.find(seq => seq.header === header);
+                if (!sequenceObj) {
+                    alert(`Sequence with the header "${header}" not found.`);
+                    continue;
+                }
+
+                let extracted = sequenceObj.sequence.substring(start, end).toLowerCase(); // Convert to lowercase
+                extracted_20 = extracted.substring(0, 20);
+                let oneHotEncoded = oneHotEncode(extracted); // One-hot encode
+                oneHotEncoded_20 = oneHotEncoded.slice(0, 20);
+
+                extractedSequences += `Header: ${header}\nStart: ${start}\nEnd: ${end}\nSequence: ${extracted_20}\nOne-Hot:\n${JSON.stringify(oneHotEncoded_20)}\n\n`;
+            }
+
+            const sequenceTextElement = document.getElementById("sequenceText");
+            if (sequenceTextElement) {
+                sequenceTextElement.innerText = `Extracted Sequences: \n${extractedSequences}`;
+            } else {
+                console.error("Unable to find #sequenceText element.");
+            }
+        }
+
 
         document.getElementById('runModelButton').addEventListener('click', runModel);
     </script>
