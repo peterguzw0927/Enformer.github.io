@@ -73,6 +73,7 @@
     <div id="plot"></div>
 
     <script>
+        let extractedSequencesGlobal = [];
         document.addEventListener('DOMContentLoaded', function () {
             // Add event listener for 'Extract Sequences' button
             document.getElementById("extractSequencesButton").addEventListener("click", extractSequences);
@@ -112,17 +113,27 @@
 
                 await tf.setBackend("webgpu");
                 await tf.ready();
-                document.getElementById('outputText').innerText = 'Loading model...';
+                document.getElementById('outputText').innerText = 'Loading model please wait patiently for the next few minutes...';
 
                 const modelPath = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model/model.json";
-                ///const modelPath = 'http://localhost:8000/tfjs_model/model_copy.json';
                 console.log("Loading model from:", modelPath);
                 const model = await tf.loadGraphModel(modelPath);
 
                 document.getElementById('outputText').innerText = 'Model loaded successfully. Running inference...';
 
-                const input = new Float32Array(196_608 * 4);
-                const inputTensor = tf.tensor(input, [1, 196608, 4], 'float32');
+                if (extractedSequencesGlobal.length === 0) {
+                    alert("No sequences extracted. Run 'Extract Sequences' first.");
+                    return;
+                }
+
+                // Convert extracted sequences to tensor
+                console.log("Extracted sequence dimensions: ", {
+                    batch_size: extractedSequencesGlobal.length,
+                    sequence_length: extractedSequencesGlobal[0]?.length,
+                    one_hot_depth: extractedSequencesGlobal[0]?.[0]?.length
+                });
+
+                const inputTensor = tf.tensor(extractedSequencesGlobal, [1, 196608, 4], 'float32');
 
                 console.log("Start Inferencing");
                 document.getElementById('outputText').innerText = 'Inferencing... Might take a few seconds.';
@@ -144,15 +155,7 @@
                     Mouse Output Shape: ${JSON.stringify(mouseShape)}
                 `;
 
-                const humanOutputArray = await humanOutput.data();
-                const mouseOutputArray = await mouseOutput.data();
-
-                document.getElementById('downloadButtons').style.display = 'block';
-
-                document.getElementById('downloadHumanOutput').addEventListener('click', () => downloadOutput('humanOutput.json', humanOutputArray));
-                document.getElementById('downloadMouseOutput').addEventListener('click', () => downloadOutput('mouseOutput.json', mouseOutputArray));
-
-                humanOutputTensor = tf.tensor(humanOutputArray, humanShape);
+                humanOutputTensor = tf.tensor(await humanOutput.data(), humanShape);
 
                 const trackSelection = document.getElementById('trackSelection');
                 for (let i = 0; i < humanShape[2]; i++) {
@@ -178,6 +181,7 @@
                 document.getElementById('outputText').innerText = 'Error: ' + error.message;
             }
         }
+
 
         function downloadOutput(filename, data) {
             const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -220,7 +224,7 @@
             });
         }
         function oneHotEncode(sequence) {
-            const mapping = { 'a': [1, 0, 0, 0], 'c': [0, 1, 0, 0], 'g': [0, 0, 1, 0], 't': [0, 0, 0, 1], 'n': [0, 0, 0, 0] };
+            const mapping = { 'a': [1, 0, 0, 0], 'c': [0, 1, 0, 0], 'g': [0, 0, 1, 0], 't': [0, 0, 0, 1], 'n': [0, 0, 0, 0], '.': [0.25, 0.25, 0.25, 0.25] };
             return sequence.split("").map(base => mapping[base] || [0, 0, 0, 0]); // Handle unknown bases
         }
 
@@ -277,6 +281,8 @@
         }
 
         function extractSequences() {
+            extractedSequences = ""
+            extractedSequencesGlobal = [];
             if (!fastaData || fastaData.length === 0) {
                 alert("FASTA file not loaded yet.");
                 return;
@@ -298,12 +304,11 @@
                 }
             }
 
-            let extractedSequences = "";
 
             for (let i = 0; i < headers.length; i++) {
                 const header = headers[i];
                 const start = starts[i];
-                const end = ends[i] + 1;
+                const end = ends[i];
 
                 const sequenceObj = fastaData.find(seq => seq.header === header);
                 if (!sequenceObj) {
@@ -312,10 +317,11 @@
                 }
 
                 let extracted = sequenceObj.sequence.substring(start, end).toLowerCase(); // Convert to lowercase
+                // console.log(`Extracted Sequence Length: ${extracted}`) 
                 extracted_20 = extracted.substring(0, 20);
                 let oneHotEncoded = oneHotEncode(extracted); // One-hot encode
                 oneHotEncoded_20 = oneHotEncoded.slice(0, 20);
-
+                extractedSequencesGlobal.push(oneHotEncoded);
                 extractedSequences += `Header: ${header}\nStart: ${start}\nEnd: ${end}\nSequence: ${extracted_20}\nOne-Hot:\n${JSON.stringify(oneHotEncoded_20)}\n\n`;
             }
 
