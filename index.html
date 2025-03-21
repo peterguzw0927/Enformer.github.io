@@ -47,7 +47,37 @@
         <button onclick="addRangeField()">Add Range</button>
         <div id="rangeSelection"></div>
     </div>
-
+    <div>
+        <label for="chromosomeSelection">Select Chromosome:</label>
+        <select id="chromosomeSelection">
+            <option value="">-- Select Chromosome --</option>
+            <option value="chr1.fa">Chromosome 1</option>
+            <option value="chr2.fa">Chromosome 2</option>
+            <option value="chr3.fa">Chromosome 3</option>
+            <option value="chr4.fa">Chromosome 4</option>
+            <option value="chr5.fa">Chromosome 5</option>
+            <option value="chr6.fa">Chromosome 6</option>
+            <option value="chr7.fa">Chromosome 7</option>
+            <option value="chr8.fa">Chromosome 8</option>
+            <option value="chr9.fa">Chromosome 9</option>
+            <option value="chr10.fa">Chromosome 10</option>
+            <option value="chr11.fa">Chromosome 11</option>
+            <option value="chr12.fa">Chromosome 12</option>
+            <option value="chr13.fa">Chromosome 13</option>
+            <option value="chr14.fa">Chromosome 14</option>
+            <option value="chr15.fa">Chromosome 15</option>
+            <option value="chr16.fa">Chromosome 16</option>
+            <option value="chr17.fa">Chromosome 17</option>
+            <option value="chr18.fa">Chromosome 18</option>
+            <option value="chr19.fa">Chromosome 19</option>
+            <option value="chr20.fa">Chromosome 20</option>
+            <option value="chr21.fa">Chromosome 21</option>
+            <option value="chr22.fa">Chromosome 22</option>
+            <option value="chrY.fa">Chromosome Y</option>
+            <option value="chrX.fa">Chromosome X</option>
+        </select>
+    </div>
+    
     <button onclick="loadFasta()">Load FASTA</button>
     <button id="extractSequencesButton" onclick="extractSequences()">Extract Sequences</button>
     <div id="sequenceText"></div> <!-- Add this element -->
@@ -80,7 +110,6 @@
         });
 
         let fastaData = "";
-        const fastaPath = "http://localhost:8000/fasta.fa";
 
         let humanOutputTensor;
 
@@ -182,6 +211,14 @@
             }
         }
 
+        function getFastaPath() {
+            const chromosome = document.getElementById("chromosomeSelection").value;
+            if (!chromosome) {
+                alert("Please select a chromosome first.");
+                return null;
+            }
+            return `https://enformeronnx.s3.us-east-2.amazonaws.com/HumanChr/${chromosome}`; // Adjust path if needed
+        }
 
         function downloadOutput(filename, data) {
             const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -217,6 +254,8 @@
             trackData.dispose();
         }
         function loadFasta() {
+            const fastaPath = getFastaPath();
+            if (!fastaPath) return; // Stop if no chromosome is selected
             d3.text(fastaPath).then(function (data) {
                 parseFasta(data);
             }).catch(error => {
@@ -340,3 +379,8 @@
 </body>
 
 </html>
+
+<!-- scp petergu@scc1.bu.edu:/projectnb/aclab/petergu/enformer-pytorch/test_enformer.onnx /Users/guzhaowen/Downloads/onnx_test     -->
+<!-- convert to tf: (convertenv2) onnx-tf convert -i test_enformer.onnx -o tf_model -->
+<!-- convert to tfjs: (convertenv3) tensorflowjs_converter tf_model/ tfjs_model/ --input_format tf_saved_model --output_format tfjs_graph_model --quantize_uint8 -->
+<!-- python -m http.server 8000  -->
