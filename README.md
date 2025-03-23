@@ -1,5 +1,9 @@
 # Enformer
-simple Enformer website deployment using onnx and tfjs, please make sure the input sequence have 196608 length
+Simple Enformer website deployment using onnx and tfjs, currently still subject to improvements.
+
+If you want to see the changes I made for the Enformer model, repo is here: https://github.com/peterguzw0927/Enformer_new
+
+** Please make sure the input sequence have 196608 length**
 
 If you have costumized enformer you can convert onnx file to tf model and then to tfjs model using:
 
