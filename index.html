@@ -77,7 +77,7 @@
             <option value="chrX.fa">Chromosome X</option>
         </select>
     </div>
-    
+
     <button onclick="loadFasta()">Load FASTA</button>
     <button id="extractSequencesButton" onclick="extractSequences()">Extract Sequences</button>
     <div id="sequenceText"></div> <!-- Add this element -->
@@ -122,18 +122,166 @@
                 return;
             }
 
-            for (let i = 0; i < starts.length; i++) {
-                if (starts[i] < 0 || ends[i] > 196608 || starts[i] >= ends[i]) {
-                    alert("Invalid range selection. Ensure 0 <= start < end <= 196608.");
-                    return;
-                }
-            }
 
             document.getElementById("sequenceText").innerText = "Extracted Sequences: \n" + starts.map((s, i) => `Range ${s}-${ends[i]}: ACTGN...`).join("\n");
         });
 
+        async function setupTensorflowEnvironment() {
+            console.log("Setting up TensorFlow.js environment...");
+
+            // 1. Check device and browser capabilities
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const isOlderDevice = navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4;
+
+            // 2. Try to detect memory constraints
+            const isLowMemoryDevice = isMobile || isOlderDevice ||
+                (navigator.deviceMemory && navigator.deviceMemory < 4);
+
+            console.log(`Device detection: Mobile=${isMobile}, Older=${isOlderDevice}, LowMemory=${isLowMemoryDevice}`);
+
+            // 3. Choose and configure appropriate backend
+            const preferredBackends = isLowMemoryDevice
+                ? ['cpu']
+                : ['webgl', 'cpu'];
+
+            // Try backends in order of preference
+            let backendSet = false;
+            for (const backend of preferredBackends) {
+                try {
+                    console.log(`Attempting to set backend: ${backend}`);
+                    await tf.setBackend(backend);
+                    backendSet = true;
+                    console.log(`Successfully set backend to ${backend}`);
+                    break;
+                } catch (e) {
+                    console.warn(`Failed to set backend to ${backend}:`, e);
+                }
+            }
+
+            if (!backendSet) {
+                console.error("Could not set any TensorFlow.js backend!");
+                return false;
+            }
+
+            // 4. Configure WebGL for better compatibility if that's the selected backend
+            if (tf.getBackend() === 'webgl') {
+                console.log("Configuring WebGL backend for compatibility...");
+
+                // These settings may help with stride-related issues
+                tf.env().set('WEBGL_PACK', false);
+                tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
+                tf.env().set('WEBGL_PACK_DEPTHWISECONV', false);
+
+                // For older devices, force WebGL 1
+                if (isOlderDevice) {
+                    tf.env().set('WEBGL_VERSION', 1);
+                }
+
+                // Verify WebGL is working correctly with a simple operation
+                try {
+                    const testTensor = tf.tensor1d([1, 2, 3]);
+                    const sliced = tf.slice(testTensor, [0], [2]); // Test slicing specifically
+                    sliced.dispose();
+                    testTensor.dispose();
+                    console.log("WebGL backend verified with test slice operation");
+                } catch (e) {
+                    console.error("WebGL test failed, falling back to CPU", e);
+                    await tf.setBackend('cpu');
+                }
+            }
+
+            // 5. Set up global error handler for stride-related issues
+            window.originalTfSlice = tf.slice;
+            tf.slice = function safeSlice(...args) {
+                try {
+                    return window.originalTfSlice.apply(this, args);
+                } catch (e) {
+                    if (e.message && e.message.includes('stride')) {
+                        console.warn("Stride error detected in slice operation, attempting fallback");
+                        // If we're not already on CPU, switch temporarily
+                        const currentBackend = tf.getBackend();
+                        if (currentBackend !== 'cpu') {
+                            tf.setBackend('cpu');
+                            const result = window.originalTfSlice.apply(this, args);
+                            tf.setBackend(currentBackend);
+                            return result;
+                        }
+                    }
+                    throw e; // Re-throw if we can't handle it
+                }
+            };
+
+            // 6. Memory management helpers
+            if (isLowMemoryDevice) {
+                // More aggressive garbage collection
+                setInterval(() => {
+                    if (tf.memory().numTensors > 50) { // Adjust threshold as needed
+                        console.log("Memory cleanup: disposing unused tensors");
+                        tf.disposeVariables();
+                    }
+                }, 5000);
+            }
+
+            console.log(`TensorFlow.js environment setup complete. Using backend: ${tf.getBackend()}`);
+            return true;
+        }
+
+        // Wrapper for safer model execution
+        async function safelyExecuteModel(model, input) {
+            // Clean up before execution
+            tf.engine().startScope();
+
+            try {
+                // Log memory state
+                console.log("Pre-execution memory state:", tf.memory());
+
+                // Execute the model
+                const result = model.predict(input);
+
+                // For tensors that might cause issues, use CPU operations
+                let processedResult;
+                try {
+                    processedResult = result;
+                } catch (e) {
+                    if (e.message && e.message.includes('stride')) {
+                        console.warn("Stride error during post-processing, using CPU fallback");
+                        const currentBackend = tf.getBackend();
+                        await tf.setBackend('cpu');
+                        processedResult = result;
+                        await tf.setBackend(currentBackend);
+                    } else {
+                        throw e;
+                    }
+                }
+
+                // Get data out of tensor before cleanup
+                const outputData = await processedResult.data();
+
+                // Clean up
+                if (processedResult !== result && result.dispose()) {
+                    processedResult.dispose();
+                }
+                result.dispose();
+
+                console.log("Post-execution memory state:", tf.memory());
+                return outputData;
+            } catch (e) {
+                console.error("Error during model execution:", e);
+                throw e;
+            } finally {
+                tf.engine().endScope();
+            }
+        }
+
+
 
         async function runModel() {
+            loadFasta()
+            const envReady = await setupTensorflowEnvironment();
+            if (!envReady) {
+                alert("Sorry your device is not compatible with this application")
+                return;
+            }
             try {
                 const button = document.getElementById("runModelButton");
                 button.disabled = true; // disable button after click
@@ -144,9 +292,15 @@
                 await tf.ready();
                 document.getElementById('outputText').innerText = 'Loading model please wait patiently for the next few minutes...';
 
-                const modelPath = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model/model.json";
-                console.log("Loading model from:", modelPath);
-                const model = await tf.loadGraphModel(modelPath);
+                //const modelPath = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model/model.json";
+                const model_partone_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_new/model.json"
+                const model_transformer_partone_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_transformer_part1/model.json"
+                const model_transformer_parttwo_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_transformer_part2/model.json"
+                const model_heads_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_heads/model.json"
+
+
+                console.log("Loading model from:", model_partone_path);
+                const model = await tf.loadGraphModel(model_partone_path);
 
                 document.getElementById('outputText').innerText = 'Model loaded successfully. Running inference...';
 
@@ -166,7 +320,32 @@
 
                 console.log("Start Inferencing");
                 document.getElementById('outputText').innerText = 'Inferencing... Might take a few seconds.';
-                const outputDict = model.execute(inputTensor);
+                tf.engine().startScope();
+                console.log("Pre-execution memory state:", tf.memory());
+                X = model.execute(inputTensor);
+
+                model.dispose();
+                console.log("Loading model from:", model_transformer_partone_path);
+                const model_transformer_partone = await tf.loadGraphModel(model_transformer_partone_path);
+                console.log("Inferencing from:", model_transformer_partone_path);
+                X = model_transformer_partone.execute(X);
+
+                model_transformer_partone.dispose();
+                console.log("Loading model from:", model_transformer_parttwo_path);
+                const model_transformer_parttwo = await tf.loadGraphModel(model_transformer_parttwo_path);
+                console.log("Inferencing from:", model_transformer_parttwo_path);
+                X = model_transformer_parttwo.execute(X);
+
+                model_transformer_parttwo.dispose();
+                console.log("Loading model from:", model_heads_path);
+                const model_heads = await tf.loadGraphModel(model_heads_path);
+                console.log("Inferencing from:", model_heads_path);
+                const outputDict = model_heads.execute(X);
+
+                model_heads.dispose();
+
+
+                // const outputDict = await safelyExecuteModel(model, inputTensor)
                 console.log("Finish Inferencing");
 
                 let humanOutput = outputDict[1];
