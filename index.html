@@ -273,6 +273,17 @@
             }
         }
 
+        async function processEnformerParts(X) {
+            for (let i = 1; i <= 11; i++) {
+                const modelPartPath = `https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_transformer_part_${i}/model.json`; // Assuming tfjs models have this structure
+                console.log("Loading model from:", modelPartPath);
+                const modelPart = await tf.loadGraphModel(modelPartPath);
+                console.log("Inferencing from:", modelPartPath);
+                X = modelPart.execute(X);
+                modelPart.dispose();
+            }
+            return X;
+        }
 
 
         async function runModel() {
@@ -294,8 +305,7 @@
 
                 //const modelPath = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model/model.json";
                 const model_partone_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_new/model.json"
-                const model_transformer_partone_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_transformer_part1/model.json"
-                const model_transformer_parttwo_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_transformer_part2/model.json"
+
                 const model_heads_path = "https://enformeronnx.s3.us-east-2.amazonaws.com/tfjs_model_heads/model.json"
 
 
@@ -323,20 +333,10 @@
                 tf.engine().startScope();
                 console.log("Pre-execution memory state:", tf.memory());
                 X = model.execute(inputTensor);
-
                 model.dispose();
-                console.log("Loading model from:", model_transformer_partone_path);
-                const model_transformer_partone = await tf.loadGraphModel(model_transformer_partone_path);
-                console.log("Inferencing from:", model_transformer_partone_path);
-                X = model_transformer_partone.execute(X);
 
-                model_transformer_partone.dispose();
-                console.log("Loading model from:", model_transformer_parttwo_path);
-                const model_transformer_parttwo = await tf.loadGraphModel(model_transformer_parttwo_path);
-                console.log("Inferencing from:", model_transformer_parttwo_path);
-                X = model_transformer_parttwo.execute(X);
+                X = await processEnformerParts(X)
 
-                model_transformer_parttwo.dispose();
                 console.log("Loading model from:", model_heads_path);
                 const model_heads = await tf.loadGraphModel(model_heads_path);
                 console.log("Inferencing from:", model_heads_path);
