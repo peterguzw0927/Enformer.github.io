@@ -2,6 +2,7 @@
 simple Enformer website deployment using onnx and tfjs
 
 ！！！Currently only runs on MAC due to brower protocol issue !!!
+Input has to be 196608 length
 
 If you have costumized enformer you can convert onnx file to tf model and then to tfjs model using:
 
